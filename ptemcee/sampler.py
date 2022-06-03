@@ -8,7 +8,9 @@ __all__ = ["Sampler", "default_beta_ladder"]
 
 import numpy as np
 import multiprocessing as multi
+from .pbar import get_progress_bar
 from . import util
+
 
 def default_beta_ladder(ndim, ntemps=None, Tmax=None):
     """
@@ -97,7 +99,8 @@ def default_beta_ladder(ndim, ntemps=None, Tmax=None):
             Tmax = tstep ** (ntemps - 1)
     else:
         if Tmax is None:
-            raise ValueError('Must specify at least one of ``ntemps'' and finite ``Tmax``.')
+            raise ValueError(
+                'Must specify at least one of ``ntemps'' and finite ``Tmax``.')
 
         # Determine ntemps from Tmax.
         ntemps = int(np.log(Tmax) / np.log(tstep) + 2)
@@ -108,6 +111,7 @@ def default_beta_ladder(ndim, ntemps=None, Tmax=None):
         betas = np.concatenate((betas, [0]))
 
     return betas
+
 
 class LikePriorEvaluator(object):
     """
@@ -139,6 +143,7 @@ class LikePriorEvaluator(object):
                 raise ValueError('Log likelihood function returned NaN.')
 
         return ll, lp
+
 
 class Sampler(object):
     """
@@ -197,6 +202,7 @@ class Sampler(object):
         Time-scale for temperature dynamics.  Default: 100.
 
     """
+
     def __init__(self, nwalkers, dim, logl, logp,
                  ntemps=None, Tmax=None, betas=None,
                  threads=1, pool=None, a=2.0,
@@ -209,7 +215,8 @@ class Sampler(object):
         else:
             self._random = random
 
-        self._likeprior = LikePriorEvaluator(logl, logp, loglargs, logpargs, loglkwargs, logpkwargs)
+        self._likeprior = LikePriorEvaluator(
+            logl, logp, loglargs, logpargs, loglkwargs, logpkwargs)
         self.a = a
         self.nwalkers = nwalkers
         self.dim = dim
@@ -220,7 +227,8 @@ class Sampler(object):
         if betas is not None:
             self._betas = np.array(betas).copy()
         else:
-            self._betas = default_beta_ladder(self.dim, ntemps=ntemps, Tmax=Tmax)
+            self._betas = default_beta_ladder(
+                self.dim, ntemps=ntemps, Tmax=Tmax)
 
         # Make sure ladder is ascending in temperature.
         self._betas[::-1].sort()
@@ -228,7 +236,8 @@ class Sampler(object):
         if self.nwalkers % 2 != 0:
             raise ValueError('The number of walkers must be even.')
         if self.nwalkers < 2 * self.dim:
-            raise ValueError('The number of walkers must be greater than ``2*dimension``.')
+            raise ValueError(
+                'The number of walkers must be greater than ``2*dimension``.')
 
         self.pool = pool
         if threads > 1 and pool is None:
@@ -262,7 +271,8 @@ class Sampler(object):
         self.nswap_accepted = np.zeros(self.ntemps, dtype=np.float)
 
         self.nprop = np.zeros((self.ntemps, self.nwalkers), dtype=np.float)
-        self.nprop_accepted = np.zeros((self.ntemps, self.nwalkers), dtype=np.float)
+        self.nprop_accepted = np.zeros(
+            (self.ntemps, self.nwalkers), dtype=np.float)
 
         if random is not None:
             self._random = random
@@ -281,7 +291,8 @@ class Sampler(object):
     def sample(self, p0=None,
                iterations=1, thin=1,
                storechain=True, adapt=False,
-               swap_ratios=False):
+               swap_ratios=False,
+               progress=False, progress_kwargs=None):
         """
         Advance the chains ``iterations`` steps as a generator.
 
@@ -352,78 +363,87 @@ class Sampler(object):
             logpost = self._logposterior0
 
         if (logpost == -np.inf).any():
-            raise ValueError('Attempting to start with samples outside posterior support.')
+            raise ValueError(
+                'Attempting to start with samples outside posterior support.')
 
         # Expand the chain in advance of the iterations
         if storechain:
             isave = self._expand_chain(iterations // thin)
 
-        for i in range(iterations):
-            for j in [0, 1]:
-                # Get positions of walkers to be updated and walker to be sampled.
-                jupdate = j
-                jsample = (j + 1) % 2
-                pupdate = p[:, jupdate::2, :]
-                psample = p[:, jsample::2, :]
+        # Inject the progress bar
+        if progress_kwargs is None:
+            progress_kwargs = {}
+        total = iterations//thin
+        with get_progress_bar(progress, total, **progress_kwargs) as pbar:
+            for i in range(iterations):
+                for j in [0, 1]:
+                    # Get positions of walkers to be updated and walker to be sampled.
+                    jupdate = j
+                    jsample = (j + 1) % 2
+                    pupdate = p[:, jupdate::2, :]
+                    psample = p[:, jsample::2, :]
 
-                zs = np.exp(self._random.uniform(low=-np.log(self.a),
-                                                 high=np.log(self.a),
-                                                 size=(self.ntemps, self.nwalkers//2)))
+                    zs = np.exp(self._random.uniform(low=-np.log(self.a),
+                                                     high=np.log(self.a),
+                                                     size=(self.ntemps, self.nwalkers//2)))
 
-                qs = np.zeros((self.ntemps, self.nwalkers//2, self.dim))
-                for k in range(self.ntemps):
-                    js = self._random.randint(0, high=self.nwalkers // 2,
-                                              size=self.nwalkers // 2)
-                    qs[k, :, :] = psample[k, js, :] + zs[k, :].reshape(
-                        (self.nwalkers // 2, 1)) * (pupdate[k, :, :] -
-                                                   psample[k, js, :])
+                    qs = np.zeros((self.ntemps, self.nwalkers//2, self.dim))
+                    for k in range(self.ntemps):
+                        js = self._random.randint(0, high=self.nwalkers // 2,
+                                                  size=self.nwalkers // 2)
+                        qs[k, :, :] = psample[k, js, :] + zs[k, :].reshape(
+                            (self.nwalkers // 2, 1)) * (pupdate[k, :, :] -
+                                                        psample[k, js, :])
 
-                qslogl, qslogp = self._evaluate(qs)
-                qslogpost = self._tempered_likelihood(qslogl) + qslogp
+                    qslogl, qslogp = self._evaluate(qs)
+                    qslogpost = self._tempered_likelihood(qslogl) + qslogp
 
-                logpaccept = self.dim*np.log(zs) + qslogpost \
-                    - logpost[:, jupdate::2]
-                logr = np.log(self._random.uniform(low=0.0, high=1.0,
-                                                   size=(self.ntemps,
-                                                         self.nwalkers//2)))
+                    logpaccept = self.dim*np.log(zs) + qslogpost \
+                        - logpost[:, jupdate::2]
+                    logr = np.log(self._random.uniform(low=0.0, high=1.0,
+                                                       size=(self.ntemps,
+                                                             self.nwalkers//2)))
 
-                accepts = logr < logpaccept
-                accepts = accepts.flatten()
+                    accepts = logr < logpaccept
+                    accepts = accepts.flatten()
 
-                pupdate.reshape((-1, self.dim))[accepts, :] = \
-                    qs.reshape((-1, self.dim))[accepts, :]
-                logpost[:, jupdate::2].reshape((-1,))[accepts] = \
-                    qslogpost.reshape((-1,))[accepts]
-                logl[:, jupdate::2].reshape((-1,))[accepts] = \
-                    qslogl.reshape((-1,))[accepts]
+                    pupdate.reshape((-1, self.dim))[accepts, :] = \
+                        qs.reshape((-1, self.dim))[accepts, :]
+                    logpost[:, jupdate::2].reshape((-1,))[accepts] = \
+                        qslogpost.reshape((-1,))[accepts]
+                    logl[:, jupdate::2].reshape((-1,))[accepts] = \
+                        qslogl.reshape((-1,))[accepts]
 
-                accepts = accepts.reshape((self.ntemps, self.nwalkers//2))
+                    accepts = accepts.reshape((self.ntemps, self.nwalkers//2))
 
-                self.nprop[:, jupdate::2] += 1.0
-                self.nprop_accepted[:, jupdate::2] += accepts
+                    self.nprop[:, jupdate::2] += 1.0
+                    self.nprop_accepted[:, jupdate::2] += accepts
 
-            p, ratios = self._temperature_swaps(self._betas, p, logpost, logl)
+                p, ratios = self._temperature_swaps(
+                    self._betas, p, logpost, logl)
 
-            # TODO Should the notion of a "complete" iteration really include the temperature
-            # adjustment?
-            if adapt and self.ntemps > 1:
-                dbetas = self._get_ladder_adjustment(self._time, self._betas, ratios)
-                self._betas += dbetas
-                logpost += self._tempered_likelihood(logl, betas=dbetas)
+                # TODO Should the notion of a "complete" iteration really include the temperature
+                # adjustment?
+                if adapt and self.ntemps > 1:
+                    dbetas = self._get_ladder_adjustment(
+                        self._time, self._betas, ratios)
+                    self._betas += dbetas
+                    logpost += self._tempered_likelihood(logl, betas=dbetas)
 
-            if (self._time + 1) % thin == 0:
-                if storechain:
-                    self._chain[:, :, isave, :] = p
-                    self._logposterior[:, :, isave] = logpost
-                    self._loglikelihood[:, :, isave] = logl
-                    self._beta_history[:, isave] = self._betas
-                    isave += 1
+                if (self._time + 1) % thin == 0:
+                    if storechain:
+                        self._chain[:, :, isave, :] = p
+                        self._logposterior[:, :, isave] = logpost
+                        self._loglikelihood[:, :, isave] = logl
+                        self._beta_history[:, isave] = self._betas
+                        isave += 1
 
-            self._time += 1
-            if swap_ratios:
-                yield p, logpost, logl, ratios
-            else:
-                yield p, logpost, logl
+                self._time += 1
+                pbar.update(1)
+                if swap_ratios:
+                    yield p, logpost, logl, ratios
+                else:
+                    yield p, logpost, logl
 
     def _evaluate(self, ps):
         mapf = map if self.pool is None else self.pool.map
@@ -562,8 +582,8 @@ class Sampler(object):
                                                 axis=2)
             self._loglikelihood = np.concatenate((self._loglikelihood,
                                                   np.zeros((self.ntemps,
-                                                           self.nwalkers,
-                                                           nsave))),
+                                                            self.nwalkers,
+                                                            nsave))),
                                                  axis=2)
             self._beta_history = np.concatenate((self._beta_history,
                                                  np.zeros((self.ntemps, nsave))),
