@@ -445,6 +445,67 @@ class Sampler(object):
                 else:
                     yield p, logpost, logl
 
+    def save(self, filename):
+        """Export the MCMC result as a ``.npz`` file.
+
+        :param filename:
+            File's name to which the MCMC result is saved.
+        """
+        # Dictionary of information to save
+        result = {
+            # Attributes defined in __init__, typically have smaller size
+            "a": self.a,
+            "nwalkers": self.nwalkers,
+            "dim": self.dim,
+            "adaptation_time": self.adaptation_time,
+            "adaptation_lag": self.adaptation_lag,
+            "random_state": np.array(self._random.get_state(), dtype=object),
+            # Generated results that have larger array
+            "time": self._time,
+            "chain": self._chain,
+            "logposterior": self._logposterior,
+            "loglikelihood": self._loglikelihood,
+            "beta_history": self._beta_history,
+            "nswap": self.nswap,
+            "nswap_accepted": self.nswap_accepted,
+            "nprop": self.nprop,
+            "nprop_accepted": self.nprop_accepted,
+        }
+        # Save the dictionary
+        np.savez(filename, **result)
+
+    def load(self, filename):
+        """Load the MCMC result from a ``.npz`` file. Note that some attriutes set in
+        ``__init__``, such as ``nwalkers`` and ``dim``, will be overwritten.
+
+        :param filename:
+            The file to read.
+        """
+        result = np.load(filename, allow_pickle=True)
+        # Set attributes that can be read directly from the file
+        self.a = result["a"]
+        self.nwalkers = result["nwalkers"]
+        self.dim = result["dim"]
+        self.adaptation_time = result["adaptation_time"]
+        self.adaptation_lag = result["adaptation_lag"]
+        self._random.set_state(tuple(result["random_state"]))
+        self._time = result["time"]
+        self._chain = result["chain"]
+        self._logposterior = result["logposterior"]
+        self._loglikelihood = result["loglikelihood"]
+        self._beta_history = result["beta_history"]
+        self.nswap = result["nswap"]
+        self.nswap_accepted = result["nswap_accepted"]
+        self.nprop = result["nprop"]
+        self.nprop_accepted = result["nprop_accepted"]
+
+        # Set other attributes that are needed from the attributes above
+        # Initial position for this run is the last position from the last run
+        self._p0 = self._chain[:, :, -1]
+        self._logposterior0 = self._logposterior[:, :, -1]
+        self._loglikelihood0 = self._loglikelihood[:, :, -1]
+        self._betas = self._beta_history[:, -1]
+
     def _evaluate(self, ps):
         mapf = map if self.pool is None else self.pool.map
         results = list(mapf(self._likeprior, ps.reshape((-1, self.dim))))
@@ -459,7 +520,7 @@ class Sampler(object):
     def _tempered_likelihood(self, logl, betas=None):
         """
         Compute tempered log likelihood.  This is usually a mundane multiplication, except for the
-        special case where beta == 0 *and* we're outside the likelihood support.
+        special case where beta == 0 * and* we're outside the likelihood support.
 
         Here, we find a singularity that demands more careful attention; we allow the likelihood to
         dominate the temperature, since wandering outside the likelihood support causes a discontinuity.
@@ -513,8 +574,8 @@ class Sampler(object):
 
             p[i, iperm[asel], :] = p[i - 1, i1perm[asel], :]
             logl[i, iperm[asel]] = logl[i - 1, i1perm[asel]]
-            logpost[i, iperm[asel]] = logpost[i - 1, i1perm[asel]] \
-                - dbeta * logl[i - 1, i1perm[asel]]
+            logpost[i, iperm[asel]] = logpost[i - 1, i1perm[asel]]
+            - dbeta * logl[i - 1, i1perm[asel]]
 
             p[i - 1, i1perm[asel], :] = ptemp
             logl[i - 1, i1perm[asel]] = logltemp
@@ -524,8 +585,7 @@ class Sampler(object):
 
     def _get_ladder_adjustment(self, time, betas0, ratios):
         """
-        Execute temperature adjustment according to dynamics outlined in
-        `arXiv:1501.05823 <http://arxiv.org/abs/1501.05823>`_.
+        Execute temperature adjustment according to dynamics outlined in `arXiv: 1501.05823 < http: // arxiv.org/abs/1501.05823 >`_.
 
         """
 
@@ -550,12 +610,8 @@ class Sampler(object):
         """
         Expand ``self._chain``, ``self._logposterior``,
         ``self._loglikelihood``, and ``self._beta_history``
-        ahead of run to make room for new samples.
-
-        :param nsave:
-            The number of additional iterations for which to make room.
-
-        :return ``isave``:
+        ahead of run to make room for new samples.: param nsave:
+            The number of additional iterations for which to make room.: return ``isave``:
             Returns the index at which to begin inserting new entries.
 
         """
@@ -593,19 +649,13 @@ class Sampler(object):
 
     def log_evidence_estimate(self, logls=None, fburnin=0.1):
         """
-        Thermodynamic integration estimate of the evidence for the sampler.
-
-        :param logls: (optional) The log-likelihoods to use for
+        Thermodynamic integration estimate of the evidence for the sampler.: param logls: (optional) The log-likelihoods to use for
             computing the thermodynamic evidence.  If ``None`` (the
             default), use the stored log-likelihoods in the sampler.
-            Should be of shape ``(Ntemps, Nwalkers, Nsamples)``.
-
-        :param fburnin: (optional)
+            Should be of shape ``(Ntemps, Nwalkers, Nsamples)``.: param fburnin: (optional)
             The fraction of the chain to discard as burnin samples; only the
             final ``1-fburnin`` fraction of the samples will be used to
-            compute the evidence; the default is ``fburnin = 0.1``.
-
-        :return ``(logZ, dlogZ)``: Returns an estimate of the
+            compute the evidence; the default is ``fburnin=0.1``.: return ``(logZ, dlogZ)``: Returns an estimate of the
             log-evidence and the error associated with the finite
             number of temperatures at which the posterior has been
             sampled.
@@ -624,7 +674,7 @@ class Sampler(object):
 
         return util.thermodynamic_integration_log_evidence(self._betas, mean_logls)
 
-    @property
+    @ property
     def random(self):
         """
         Returns the random number generator for the sampler.
@@ -633,7 +683,7 @@ class Sampler(object):
 
         return self._random
 
-    @property
+    @ property
     def betas(self):
         """
         Returns the current inverse temperature ladder of the sampler.
@@ -641,7 +691,7 @@ class Sampler(object):
         """
         return self._betas
 
-    @property
+    @ property
     def time(self):
         """
         Returns the current time, in iterations, of the sampler.
@@ -649,7 +699,7 @@ class Sampler(object):
         """
         return self._time
 
-    @property
+    @ property
     def chain(self):
         """
         Returns the stored chain of samples; shape ``(Ntemps,
@@ -658,7 +708,7 @@ class Sampler(object):
         """
         return self._chain
 
-    @property
+    @ property
     def flatchain(self):
         """Returns the stored chain, but flattened along the walker axis, so
         of shape ``(Ntemps, Nwalkers*Nsteps, Ndim)``.
@@ -669,7 +719,7 @@ class Sampler(object):
 
         return self._chain.reshape((s[0], -1, s[3]))
 
-    @property
+    @ property
     def logprobability(self):
         """
         Matrix of logprobability values; shape ``(Ntemps, Nwalkers, Nsteps)``.
@@ -677,7 +727,7 @@ class Sampler(object):
         """
         return self._logposterior
 
-    @property
+    @ property
     def loglikelihood(self):
         """
         Matrix of log-likelihood values; shape ``(Ntemps, Nwalkers, Nsteps)``.
@@ -685,7 +735,7 @@ class Sampler(object):
         """
         return self._loglikelihood
 
-    @property
+    @ property
     def beta_history(self):
         """
         Matrix of inverse temperatures; shape ``(Ntemps, Nsteps)``.
@@ -693,7 +743,7 @@ class Sampler(object):
         """
         return self._beta_history
 
-    @property
+    @ property
     def tswap_acceptance_fraction(self):
         """
         Returns an array of accepted temperature swap fractions for
@@ -702,7 +752,7 @@ class Sampler(object):
         """
         return self.nswap_accepted / self.nswap
 
-    @property
+    @ property
     def ntemps(self):
         """
         The number of temperature chains.
@@ -710,7 +760,7 @@ class Sampler(object):
         """
         return len(self._betas)
 
-    @property
+    @ property
     def acceptance_fraction(self):
         """
         Matrix of shape ``(Ntemps, Nwalkers)`` detailing the
@@ -719,7 +769,7 @@ class Sampler(object):
         """
         return self.nprop_accepted / self.nprop
 
-    @property
+    @ property
     def acor(self):
         """
         Returns a matrix of autocorrelation lengths for each
@@ -731,9 +781,7 @@ class Sampler(object):
     def get_autocorr_time(self, window=50):
         """
         Returns a matrix of autocorrelation lengths for each
-        parameter in each temperature of shape ``(Ntemps, Ndim)``.
-
-        :param window: (optional)
+        parameter in each temperature of shape ``(Ntemps, Ndim)``.: param window: (optional)
             The size of the windowing function. This is equivalent to the
             maximum number of lags to use. (default: 50)
 

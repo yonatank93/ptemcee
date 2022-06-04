@@ -8,6 +8,7 @@ Defines various nose unit tests.
 from __future__ import division
 
 import pytest
+import os
 import numpy as np
 from .sampler import Sampler
 
@@ -123,7 +124,9 @@ class Tests(object):
         self.p0_unit = x * self.cutoff
         self.p0 = np.dot(x, self.sqrtcov)
 
-        self.p0_unit = self.p0_unit.reshape(self.ntemps, self.nwalkers, self.ndim)
+        self.p0_unit = self.p0_unit.reshape(
+            self.ntemps, self.nwalkers, self.ndim
+        )
         self.p0 = self.p0.reshape(self.ntemps, self.nwalkers, self.ndim)
 
     def check_sampler(
@@ -160,9 +163,12 @@ class Tests(object):
                 assert (
                     logpost.shape == loglike.shape == p.shape[:-1]
                 ), "Sampler output shapes invalid."
-                assert p.shape[-1] == self.ndim, "Sampler output shapes invalid."
                 assert (
-                    ratios.shape[0] == logpost.shape[0] - 1 and len(ratios.shape) == 1
+                    p.shape[-1] == self.ndim
+                ), "Sampler output shapes invalid."
+                assert (
+                    ratios.shape[0] == logpost.shape[0] - 1
+                    and len(ratios.shape) == 1
                 ), "Sampler output shapes invalid."
                 assert np.all(self.sampler.betas >= 0), "Negative temperatures!"
                 assert np.all(
@@ -195,9 +201,9 @@ class Tests(object):
                 + log_unit_sphere_volume(self.ndim)
                 + 0.5 * np.log(np.linalg.det(self.cov))
             )
-            gaussian_integral = self.ndim / 2.0 * np.log(2.0 * np.pi) + 0.5 * np.log(
-                np.linalg.det(self.cov)
-            )
+            gaussian_integral = self.ndim / 2.0 * np.log(
+                2.0 * np.pi
+            ) + 0.5 * np.log(np.linalg.det(self.cov))
 
             logZ, dlogZ = self.sampler.log_evidence_estimate()
 
@@ -377,14 +383,16 @@ class Tests(object):
         state = s.random.get_state()
         betas = s.betas.copy()
         s.run_mcmc(self.p0, iterations=N, adapt=True)
-        assert s.chain.shape[2] == N, "Expected chain of length {0}; got {1}.".format(
-            N, s.chain.shape[2]
-        )
+        assert (
+            s.chain.shape[2] == N
+        ), "Expected chain of length {0}; got {1}.".format(N, s.chain.shape[2])
 
         s.run_mcmc(iterations=N, adapt=True)
         assert (
             s.chain.shape[2] == 2 * N
-        ), "Expected chain of length {0}; got {1}.".format(2 * N, s.chain.shape[2])
+        ), "Expected chain of length {0}; got {1}.".format(
+            2 * N, s.chain.shape[2]
+        )
 
         # TODO: Is this condition too strong?
         # Now do the same run afresh and compare the results.  Given the same seed, the they
@@ -396,3 +404,74 @@ class Tests(object):
         s.run_mcmc(self.p0, iterations=2 * N, adapt=True)
         assert np.all(s.chain == chain0), "Chains don't match!"
         assert np.all(s.betas == betas0), "Ladders don't match!"
+
+    def test_load_file(self):
+        N = 10
+        filename = "test.npz"
+
+        s1 = Sampler(
+            self.nwalkers,
+            self.ndim,
+            LogLikeGaussian(self.icov),
+            LogPriorGaussian(self.icov, cutoff=self.cutoff),
+            ntemps=self.ntemps,
+            Tmax=self.Tmax,
+        )
+        s1.run_mcmc(self.p0, iterations=N, adapt=True)
+        s1.save(filename)
+
+        s2 = Sampler(
+            self.nwalkers,
+            self.ndim,
+            LogLikeGaussian(self.icov),
+            LogPriorGaussian(self.icov, cutoff=self.cutoff),
+            ntemps=self.ntemps,
+            Tmax=self.Tmax,
+        )
+        s2.load(filename)
+
+        msg = '"{0} do not match"'
+        assert s1.a == s2.a, msg.format("a")
+        assert s1.nwalkers == s2.nwalkers, msg.format("nwalkers")
+        assert s1.dim == s2.dim, msg.format("dim")
+        assert (
+            s1.adaptation_time == s2.adaptation_time,
+            msg.format("adaptation_time"),
+        )
+        assert (
+            s1.adaptation_lag == s2.adaptation_lag,
+            msg.format("adaptation_lag"),
+        )
+        assert (
+            np.all(
+                np.array(s1._random.get_state())
+                == np.array(s2._random.get_state())
+            ),
+            msg.format("random_state"),
+        )
+        assert s1._time == s2._time, msg.format("a")
+        assert np.allclose(s1._chain, s2._chain), msg.format("chain")
+        assert (
+            np.allclose(s1._logposterior, s2._logposterior),
+            msg.format("logposterior"),
+        )
+        assert (
+            np.allclose(s1._loglikelihood, s2._loglikelihood),
+            msg.format("loglikelihood"),
+        )
+        assert (
+            np.allclose(s1._beta_history, s2._beta_history),
+            msg.format("beta_history"),
+        )
+        assert np.allclose(s1.nswap, s2.nswap), msg.format("nswap")
+        assert (
+            np.allclose(s1.nswap_accepted, s2.nswap_accepted),
+            msg.format("nswap_accepted"),
+        )
+        assert np.allclose(s1.nprop, s2.nprop), msg.format("nprop")
+        assert (
+            np.allclose(s1.nprop_accepted, s2.nprop_accepted),
+            msg.format("nprop_accepted"),
+        )
+
+        os.remove(filename)
