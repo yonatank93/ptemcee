@@ -27,19 +27,6 @@ class Chain(object):
         self.swaps_proposed = np.zeros(self.ntemps - 1)
         self.swaps_accepted = np.zeros(self.ntemps - 1)
 
-    def __attrs_post_init__(self):
-        if self.thin_by is None:
-            self.thin_by = 1
-        self.x = np.empty((0, self.ntemps, self.nwalkers, self.ndim), float)
-        self.logP = np.empty((0, self.ntemps, self.nwalkers), float)
-        self.logl = np.empty((0, self.ntemps, self.nwalkers), float)
-        self.betas = np.empty((0, self.ntemps), float)
-
-        self.jumps_proposed = np.zeros((self.ntemps, self.nwalkers))
-        self.jumps_accepted = np.zeros((self.ntemps, self.nwalkers))
-        self.swaps_proposed = np.zeros(self.ntemps - 1)
-        self.swaps_accepted = np.zeros(self.ntemps - 1)
-
     @property
     def length(self):
         return self.x.shape[0]
