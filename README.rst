@@ -1,10 +1,10 @@
 ptemcee
 =======
 
-.. image:: http://img.shields.io/travis/willvousden/ptemcee/master.svg?style=flat
+.. image:: http://img.shields.io/travis/willvousden/ptemcee/main.svg?style=flat
         :target: http://travis-ci.org/willvousden/ptemcee
 .. image:: http://img.shields.io/badge/license-MIT-blue.svg?style=flat
-        :target: https://github.com/willvousden/ptemcee/blob/master/LICENSE
+        :target: https://github.com/willvousden/ptemcee/blob/main/LICENSE
 .. image:: http://img.shields.io/badge/arXiv-1501.05823-orange.svg?style=flat
         :target: http://arxiv.org/abs/1501.05823
 
@@ -36,7 +36,7 @@ License
 -------
 
 *ptemcee* is free software distributed under the MIT License; see the `LICENSE
-<https://github.com/willvousden/ptemcee/blob/master/LICENSE>`_ file for details.
+<https://github.com/willvousden/ptemcee/blob/main/LICENSE>`_ file for details.
 
 .. |emcee| replace:: *emcee*
 .. _emcee: https://github.com/dfm/emcee
