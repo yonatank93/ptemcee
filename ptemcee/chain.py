@@ -2,32 +2,21 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-__all__ = ['Chain']
+__all__ = ["Chain"]
 
-import attr
 import numpy as np
 
 from . import util
 from . import ensemble
 
 
-@attr.s(slots=True)
 class Chain(object):
-    ensemble = attr.ib(type=ensemble.Ensemble)
-    thin_by = attr.ib(type=int, default=None)
-    x = attr.ib(type=np.ndarray, init=False, default=None)
-    logP = attr.ib(type=np.ndarray, init=False, default=None)
-    logl = attr.ib(type=np.ndarray, init=False, default=None)
-    betas = attr.ib(type=np.ndarray, init=False, default=None)
-
-    swaps_proposed = attr.ib(type=np.ndarray, init=False)
-    swaps_accepted = attr.ib(type=np.ndarray, init=False)
-    jumps_proposed = attr.ib(type=np.ndarray, init=False)
-    jumps_accepted = attr.ib(type=np.ndarray, init=False)
-
-    def __attrs_post_init__(self):
+    def __init__(self, ensemble: ensemble.Ensemble, thin_by: int = None):
+        self.ensemble = ensemble
+        self.thin_by = thin_by
         if self.thin_by is None:
             self.thin_by = 1
+
         self.x = np.empty((0, self.ntemps, self.nwalkers, self.ndim), float)
         self.logP = np.empty((0, self.ntemps, self.nwalkers), float)
         self.logl = np.empty((0, self.ntemps, self.nwalkers), float)

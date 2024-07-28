@@ -1,24 +1,21 @@
-import attr
 import numpy as np
 import itertools
 
-from attr.validators import instance_of
 from numpy.random.mtrand import RandomState
 
 from . import util
 
-__all__ = ['Ensemble', 'EnsembleConfiguration']
+__all__ = ["Ensemble", "EnsembleConfiguration"]
 
 
-@attr.s(slots=True, frozen=True)
 class EnsembleConfiguration(object):
-    adaptation_lag = attr.ib()
-    adaptation_time = attr.ib()
-    scale_factor = attr.ib()
-    evaluator = attr.ib()
+    def __init__(self, adaptation_lag, adaptation_time, scale_factor, evaluator):
+        self.adaptation_lag = adaptation_lag
+        self.adaptation_time = adaptation_time
+        self.scale_factor = scale_factor
+        self.evaluator = evaluator
 
 
-@attr.s(slots=True)
 class Ensemble(object):
     """
     This contains as little contextual information as it can.  It represents an ensemble.py that performs steps in the
@@ -26,45 +23,45 @@ class Ensemble(object):
 
     """
 
-    _config = attr.ib(type=EnsembleConfiguration, validator=instance_of(EnsembleConfiguration))
+    def __init__(
+        self,
+        config: EnsembleConfiguration,
+        betas,
+        x,
+        logP: np.ndarray = None,
+        logl: np.ndarray = None,
+        adaptive: bool = False,
+        random: RandomState = None,
+        mapper=map,
+    ):
+        self._config = config
+        assert isinstance(self._config, EnsembleConfiguration)
 
-    betas = attr.ib(type=np.ndarray, converter=util._ladder)
+        self.betas = util._ladder(betas)
 
-    # Initial walker positions and probabilities.
-    x = attr.ib(type=np.ndarray, converter=np.array)
-    logP = attr.ib(type=np.ndarray, default=None)
-    logl = attr.ib(type=np.ndarray, default=None)
+        # Initial walker positions and probabilities.
+        self.x = np.array(x)
+        self.logP = logP
+        self.logl = logl
 
-    adaptive = attr.ib(type=bool, converter=bool, default=False)
+        self.adaptive = bool(adaptive)
 
-    _random = attr.ib(type=RandomState, validator=instance_of(RandomState), factory=RandomState)
-    _mapper = attr.ib(default=map)
+        self._random = RandomState() if random is None else random
+        assert isinstance(self._random, RandomState)
+        self._mapper = mapper
 
-    time = attr.ib(type=int, init=False, default=0)
-    nwalkers = attr.ib(type=int, init=False)
-    ntemps = attr.ib(type=int, init=False)
-    ndim = attr.ib(type=int, init=False)
+        # Validate
+        self._is_consistent(self.betas)
+        self._is_callable("mapper", self._mapper)
 
-    jumps_proposed = attr.ib(type=np.ndarray, init=False, default=None)
-    jumps_accepted = attr.ib(type=np.ndarray, init=False, default=None)
-    swaps_proposed = attr.ib(type=np.ndarray, init=False, default=None)
-    swaps_accepted = attr.ib(type=np.ndarray, init=False, default=None)
-
-    @_mapper.validator
-    def _is_callable(self, attribute, value):
-        if not callable(value):
-            raise ValueError('{} must be callable.'.format(attribute.name))
-
-    @betas.validator
-    def _is_consistent(self, attribute, value):
-        if len(value) != len(self.x):
-            raise ValueError('Number of temperatures not consistent with starting positions.')
-
-    def __attrs_post_init__(self):
+        # Other attributes
+        self.time = 0
         self.ntemps, self.nwalkers, self.ndim = self.x.shape
 
         self.jumps_proposed = np.ones((self.ntemps, self.nwalkers))
+        self.jumps_accepted = None
         self.swaps_proposed = np.full(self.ntemps - 1, self.nwalkers)
+        self.swaps_accepted = None
 
         # If we have no likelihood or prior values, compute them.
         if self.logP is None or self.logl is None:
@@ -73,7 +70,19 @@ class Ensemble(object):
             self.logl = logl
 
         if (self.logP == -np.inf).any():
-            raise ValueError('Attempting to start with samples outside posterior support.')
+            raise ValueError(
+                "Attempting to start with samples outside posterior support."
+            )
+
+    def _is_callable(self, name, value):
+        if not callable(value):
+            raise ValueError("{} must be callable.".format(name))
+
+    def _is_consistent(self, value):
+        if len(value) != len(self.x):
+            raise ValueError(
+                "Number of temperatures not consistent with starting positions."
+            )
 
     def step(self):
         self._stretch(self.x, self.logP, self.logl)
@@ -82,9 +91,7 @@ class Ensemble(object):
 
         # TODO: Should the notion of a 'complete' iteration really include the temperature adjustment?
         if self.adaptive and self.ntemps > 1:
-            dbetas = self._get_ladder_adjustment(self.time,
-                                                 self.betas,
-                                                 ratios)
+            dbetas = self._get_ladder_adjustment(self.time, self.betas, ratios)
             self.betas += dbetas
             self.logP += self._tempered_likelihood(self.logl, betas=dbetas)
 
@@ -113,9 +120,9 @@ class Ensemble(object):
             y = np.empty((t, w, d))
             for k in range(t):
                 js = self._random.randint(0, high=w, size=w)
-                y[k, :, :] = (x_sample[k, js, :] +
-                              z[k, :].reshape((w, 1)) *
-                              (x_update[k, :, :] - x_sample[k, js, :]))
+                y[k, :, :] = x_sample[k, js, :] + z[k, :].reshape((w, 1)) * (
+                    x_update[k, :, :] - x_sample[k, js, :]
+                )
 
             y_logl, y_logp = self._evaluate(y)
             y_logP = self._tempered_likelihood(y_logl) + y_logp
@@ -142,7 +149,9 @@ class Ensemble(object):
         shape = x.shape[:-1]
         values = x.reshape((-1, self.ndim))
         length = len(values)
-        results = itertools.chain.from_iterable(self._mapper(self._config.evaluator, values))
+        results = itertools.chain.from_iterable(
+            self._mapper(self._config.evaluator, values)
+        )
 
         # Construct into a pre-allocated ndarray.
         array = np.fromiter(results, float, 2 * length).reshape(shape + (2,))
@@ -161,7 +170,7 @@ class Ensemble(object):
         if betas is None:
             betas = self.betas
 
-        with np.errstate(invalid='ignore'):
+        with np.errstate(invalid="ignore"):
             loglT = logl * betas[:, None]
         loglT[np.isnan(loglT)] = -np.inf
 
@@ -213,7 +222,7 @@ class Ensemble(object):
             paccept = dbeta * (logl[i, iperm] - logl[i - 1, i1perm])
 
             # How many swaps were accepted?
-            sel = (paccept > raccept)
+            sel = paccept > raccept
             self.swaps_accepted[i - 1] = np.sum(sel)
 
             x_temp = np.copy(x[i, iperm[sel], :])
@@ -222,7 +231,9 @@ class Ensemble(object):
 
             x[i, iperm[sel], :] = x[i - 1, i1perm[sel], :]
             logl[i, iperm[sel]] = logl[i - 1, i1perm[sel]]
-            logP[i, iperm[sel]] = logP[i - 1, i1perm[sel]] - dbeta * logl[i - 1, i1perm[sel]]
+            logP[i, iperm[sel]] = (
+                logP[i - 1, i1perm[sel]] - dbeta * logl[i - 1, i1perm[sel]]
+            )
 
             x[i - 1, i1perm[sel], :] = x_temp
             logl[i - 1, i1perm[sel]] = logl_temp
