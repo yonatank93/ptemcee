@@ -16,7 +16,6 @@ class EnsembleConfiguration(object):
         self.evaluator = evaluator
 
 
-# @attr.s(slots=True)
 class Ensemble(object):
     """
     This contains as little contextual information as it can.  It represents an ensemble.py that performs steps in the
@@ -83,23 +82,6 @@ class Ensemble(object):
         if len(value) != len(self.x):
             raise ValueError(
                 "Number of temperatures not consistent with starting positions."
-            )
-
-    def __attrs_post_init__(self):
-        self.ntemps, self.nwalkers, self.ndim = self.x.shape
-
-        self.jumps_proposed = np.ones((self.ntemps, self.nwalkers))
-        self.swaps_proposed = np.full(self.ntemps - 1, self.nwalkers)
-
-        # If we have no likelihood or prior values, compute them.
-        if self.logP is None or self.logl is None:
-            logl, logp = self._evaluate(self.x)
-            self.logP = self._tempered_likelihood(logl) + logp
-            self.logl = logl
-
-        if (self.logP == -np.inf).any():
-            raise ValueError(
-                "Attempting to start with samples outside posterior support."
             )
 
     def step(self):
